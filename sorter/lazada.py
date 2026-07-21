@@ -134,24 +134,50 @@ def build_report_lazada(items: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_picking_rows_lazada(df_reversed: pd.DataFrame) -> list[dict]:
-    """Order list for the สรุปรวม PDF: a pure, 1:1 translation of the reversed
-    xlsx. One output row per raw spreadsheet row, in the same order, with the
-    ONLY change being sellerSku -> readable product label. Nothing else:
+    """Order list for the สรุปรวม PDF: one output row per raw xlsx row, in the
+    same (reversed) order, with sellerSku translated to a readable label.
 
+    NO row alteration — the list mirrors the spreadsheet line-for-line:
       - no collapsing/summing (4 rows of "16HO+จุก" stay 4 rows of "16HO+จุก")
-      - no +จุก -> ตัวล็อคใบพัดลม lock explosion
-      - no green/yellow highlighting
+      - no +จุก -> ตัวล็อคใบพัดลม lock line (the raw "+จุก" label shows as-is)
 
-    The Total/กล่อง/ใบพัด summary tables below the list are the only place any
-    counting or +จุก lock accounting happens; the order list is left untouched.
+    Highlighting IS kept, as a picking aid (it colours cells, it never adds,
+    removes, or merges rows). Same rule as sorter.core.build_picking_rows:
+      no highlight -> order has a single distinct product on a single row
+      green        -> order has a single distinct product across >=2 rows
+                      (every one of those rows is green)
+      yellow       -> mixed order (>=2 distinct products): the order's first
+                      row marks its "#" cell, every later row marks its "qty"
+                      cell — a visual bracket grouping the order's lines
+
+    The Total/กล่อง/ใบพัด summary tables below are the only place counting and
+    +จุก lock accounting happen.
     """
     order_sn_col = df_reversed["orderNumber"].astype(str).str.strip()
     label_col = df_reversed["sellerSku"].map(translate_lazada_sku)
 
-    return [
-        {"order_sn": order_sn, "label": label, "qty": 1, "highlight": None, "highlight_cell": None}
-        for order_sn, label in zip(order_sn_col, label_col)
-    ]
+    tmp = pd.DataFrame({"order_sn": order_sn_col, "label": label_col})
+    order_size_map = tmp.groupby("order_sn")["label"].nunique().to_dict()
+    order_rowcount_map = tmp.groupby("order_sn").size().to_dict()
+
+    rows: list[dict] = []
+    emitted_per_order: dict[str, int] = {}
+
+    for order_sn, label in zip(order_sn_col, label_col):
+        is_mixed = order_size_map[order_sn] >= 2
+        is_green = (not is_mixed) and order_rowcount_map[order_sn] >= 2
+
+        if is_mixed:
+            n = emitted_per_order.get(order_sn, 0)
+            emitted_per_order[order_sn] = n + 1
+            highlight, highlight_cell = "yellow", ("num" if n == 0 else "qty")
+        elif is_green:
+            highlight, highlight_cell = "green", None
+        else:
+            highlight, highlight_cell = None, None
+        rows.append({"order_sn": order_sn, "label": label, "qty": 1, "highlight": highlight, "highlight_cell": highlight_cell})
+
+    return rows
 
 
 def sort_lazada(xlsx_files: list, _config: Config) -> LazadaResult:

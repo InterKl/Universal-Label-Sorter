@@ -82,9 +82,8 @@ assert list(reversed_df.columns) == list(df.columns)
 print("PASS: row reversal exact, columns preserved")
 
 # --- picking_rows: order list for the สรุปรวม PDF ---
-# Pure 1:1 translation of the reversed xlsx — one row per raw spreadsheet row,
-# in the same order, ONLY sellerSku -> label. No collapsing, no +จุก
-# explosion / lock line, no highlighting.
+# One row per raw xlsx row, same (reversed) order, sellerSku -> label. No
+# collapsing/summing and no +จุก lock line, but highlighting IS kept.
 # Input order: A, B,B,B, C(16M),C(18M), D  ->  reversed: D, C(18M),C(16M), B,B,B, A
 pr = result.picking_rows
 assert [r["order_sn"] for r in pr] == [
@@ -94,16 +93,24 @@ assert [r["order_sn"] for r in pr] == [
 assert [r["label"] for r in pr] == [
     "18PP+จุก", "18M", "16M", "16HO", "16HO", "16HO", "16H",
 ], [r["label"] for r in pr]
-print("PASS: order list is a pure 1:1 translation of the reversed xlsx")
-
 assert all(r["qty"] == 1 for r in pr), "no summing — every row is qty=1"
-assert all(r["highlight"] is None and r["highlight_cell"] is None for r in pr), "no highlighting"
-print("PASS: no collapsing, no +จุก lock line, no highlighting — translation only")
+print("PASS: order list mirrors the reversed xlsx row-for-row (label translated)")
 
-# The 3 repeated 16HO rows of ORDER-B stay 3 separate rows (not one qty=3 row).
-assert sum(1 for r in pr if r["order_sn"] == "ORDER-B") == 3
 # 18PP+จุก shows the raw translated label, no separate ตัวล็อคใบพัดลม lock row.
 assert "ตัวล็อคใบพัดลม" not in [r["label"] for r in pr]
-print("PASS: duplicate rows preserved; no lock line in the order list")
+print("PASS: no lock line in the order list; raw +จุก label as-is")
+
+# Highlighting kept: ORDER-D single row -> none; ORDER-C mixed -> yellow
+# (# cell then qty cell); ORDER-B same product x3 -> all green; ORDER-A none.
+d_row = next(r for r in pr if r["order_sn"] == "ORDER-D")
+assert d_row["highlight"] is None
+c_rows = [r for r in pr if r["order_sn"] == "ORDER-C"]
+assert c_rows[0]["highlight"] == "yellow" and c_rows[0]["highlight_cell"] == "num"
+assert c_rows[1]["highlight"] == "yellow" and c_rows[1]["highlight_cell"] == "qty"
+b_rows = [r for r in pr if r["order_sn"] == "ORDER-B"]
+assert len(b_rows) == 3 and all(r["highlight"] == "green" for r in b_rows)
+a_row = next(r for r in pr if r["order_sn"] == "ORDER-A")
+assert a_row["highlight"] is None
+print("PASS: highlighting kept — mixed=yellow, repeated-single-product=green, single=none")
 
 print("\nALL LAZADA TESTS PASS")
