@@ -237,16 +237,21 @@ def build_lazada_summary_pdf(picking_rows: list[dict], summary_df: pd.DataFrame,
     buf = io.BytesIO()
 
     page_w, page_h = A4
-    margin = 15 * mm
+    # Same margin/font/leading/padding constants as build_exec_summary_pdf()
+    # (Shopee/TikTok), for visual consistency across all three platforms'
+    # summary PDFs — those values were tuned for a 3-column/60-row picking
+    # list, a constraint Lazada doesn't have, but the *typography* should
+    # still match rather than being independently eyeballed.
+    margin = 10 * mm
 
-    cell_style = ParagraphStyle("cell", fontName="PlexThai-Bold", fontSize=9, leading=11)
+    cell_style = ParagraphStyle("cell", fontName="PlexThai-Bold", fontSize=8.5, leading=9.8)
     num_style = ParagraphStyle("num", parent=cell_style, alignment=TA_RIGHT)
-    header_style = ParagraphStyle("header", fontName="PlexThai-Bold", fontSize=9.5, leading=11.5, textColor=colors.white)
+    header_style = ParagraphStyle("header", fontName="PlexThai-Bold", fontSize=9, leading=10.6, textColor=colors.white)
     header_num_style = ParagraphStyle("header_num", parent=header_style, alignment=TA_RIGHT)
     section_style = ParagraphStyle(
-        "section", fontName="PlexThai-Bold", fontSize=13, leading=16, spaceBefore=10, spaceAfter=4
+        "section", fontName="PlexThai-Bold", fontSize=11, leading=14.3, spaceBefore=4, spaceAfter=3
     )
-    title_style = ParagraphStyle("title", fontName="PlexThai-Bold", fontSize=16, leading=20, alignment=1, spaceAfter=10)
+    title_style = ParagraphStyle("title", fontName="PlexThai-Bold", fontSize=14, leading=17, alignment=1, spaceAfter=8)
 
     table_w = page_w - 2 * margin
     num_w, order_w, qty_w = 9 * mm, 42 * mm, 16 * mm
@@ -286,10 +291,10 @@ def build_lazada_summary_pdf(picking_rows: list[dict], summary_df: pd.DataFrame,
                     ("BACKGROUND", (0, 0), (-1, 0), HEADER_BG),
                     ("GRID", (0, 0), (-1, -1), 0.3, GRID_COLOR),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("TOPPADDING", (0, 0), (-1, -1), 2),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 3),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0.75),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0.75),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 2),
                 ]
                 + row_highlight_styles
             )
@@ -298,7 +303,7 @@ def build_lazada_summary_pdf(picking_rows: list[dict], summary_df: pd.DataFrame,
     else:
         story.append(Paragraph("ไม่มีรายการ / No items", cell_style))
 
-    story.append(Spacer(1, 8 * mm))
+    story.append(Spacer(1, 4 * mm))
 
     for name, rows in _extract_group_tables(summary_df):
         data = [[Paragraph(name, header_style), Paragraph("จำนวน", header_num_style)]] + [
@@ -309,16 +314,14 @@ def build_lazada_summary_pdf(picking_rows: list[dict], summary_df: pd.DataFrame,
             TableStyle(
                 [
                     ("BACKGROUND", (0, 0), (-1, 0), HEADER_BG),
-                    ("GRID", (0, 0), (-1, -1), 0.4, GRID_COLOR),
-                    ("TOPPADDING", (0, 0), (-1, -1), 3),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 5),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                    ("GRID", (0, 0), (-1, -1), 0.3, GRID_COLOR),
+                    ("TOPPADDING", (0, 0), (-1, -1), 1.5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5),
                 ]
             )
         )
         story.append(KeepTogether([Paragraph(name, section_style), t2]))
-        story.append(Spacer(1, 6 * mm))
+        story.append(Spacer(1, 4 * mm))
 
     doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=margin, bottomMargin=margin, leftMargin=margin, rightMargin=margin)
     doc.build(story)
