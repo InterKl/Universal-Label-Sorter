@@ -3,9 +3,17 @@
 Written at the end of a long build session, for whoever (human or AI) continues this project next.
 Read this before touching anything — it'll save you from re-discovering things the hard way.
 
-**Update (same day, later commit `0b2193c`):** added a Lazada tab after this doc was first written.
-See "Lazada tab" section below — it's a different shape from Shopee/TikTok (no label PDF at all),
-added on top of everything else described here. Everything else in this doc is still accurate.
+**Update (same day, commit `0b2193c`):** added a Lazada tab after this doc was first written. See
+"Lazada tab" section below — it's a different shape from Shopee/TikTok (no label PDF at all).
+
+**Update 2 (same day, commits `edbff77`→`f596373`, latest = `f596373`):** the Lazada สรุปรวม PDF
+initially shipped with *only* the Total/กล่อง/ใบพัด tables, no order list — the owner caught this
+immediately ("Why the order list in สรุปรวม") and it was added (`build_lazada_summary_pdf()`,
+replacing the old `build_group_summary_pdf()`). Getting it to *visually match* Shopee/TikTok's PDF
+took **two** follow-up commits, not one — see the new "process lesson" at the end of the Lazada
+section below; it's a mistake worth not repeating.
+
+Everything else in this doc is still accurate as of `f596373`.
 
 ## What this project is
 
@@ -13,8 +21,10 @@ A Streamlit app that lets non-technical warehouse staff process Shopee/TikTok/La
 - **Shopee/TikTok:** upload packing list + label PDF → click Sort → download sorted PDF + order
   list + จำนวนใบพัด summary + สรุปรวม executive-summary PDF.
 - **Lazada:** upload just the order xlsx (no label PDF exists for this platform) → rows get
-  reversed top-to-bottom → download the reversed order list + a Total/กล่อง/ใบพัด product summary
-  PDF.
+  reversed top-to-bottom → download the reversed order list + a สรุปรวม PDF that has BOTH an
+  order-numbered list (with the same green/yellow highlight rule as Shopee/TikTok) AND the
+  Total/กล่อง/ใบพัด tables — same shape as the Shopee/TikTok summary PDF, adapted for a platform
+  with no label pages to enumerate.
 
 Ported from the owner's original ad-hoc scripts. Packaged as a native Mac/Windows desktop app
 (PyInstaller) so staff never touch Python.
@@ -33,30 +43,44 @@ intentional before doing anything else.** If not, either flip the repo to privat
 (Settings → General → Danger Zone → Change visibility) or scrub the real SKU data out of the
 committed `sku_map.json` and replace it with placeholders.
 
-## 🔴 Open issue — Windows build won't start (unresolved when session ended)
+## 🔴 Open issue — Windows build won't start (still unresolved, paused not concluded)
 
 The owner downloaded `LabelSorter-Windows-1.0.0.zip` from the CI build (see below), ran
 `LabelSorter.exe`, and reported: **"just keep running no message appear nothing"** — no browser
-opens, no visible error. This is the last thing being debugged when the session ended.
+opens, no visible error.
+
+**Progress since this was first written:** the owner ran `python -m pip install -r requirements.txt`
+then `python -m streamlit run app.py` directly from source on the Windows machine (had to use
+`python -m pip`/`python -m streamlit` instead of bare `pip`/`streamlit` — those weren't on PATH) —
+**and it worked.** The app loaded and ran correctly from source on Windows. This is an important
+data point: **the app code itself has no Windows bug.** The problem is isolated to the packaging
+layer (`run_app.py` and/or `LabelSorter.spec`), not `app.py`/`sorter/*`.
+
+Owner was about to try building locally on the Windows machine when the conversation moved on to
+the Lazada feature instead — **this thread is paused, not resolved.** Next step:
+
+```cmd
+cd Universal-Label-Sorter
+python -m pip install -r requirements-dev.txt
+python -m PyInstaller --clean --noconfirm LabelSorter.spec
+dist\LabelSorter\LabelSorter.exe
+```
 
 Why it's hard to diagnose blind: `LabelSorter.spec` builds with `console=False` (no terminal
 window — intentional, so non-technical staff never see a scary console), which means **any crash
-or hang produces zero visible output on Windows.**
+or hang produces zero visible output on Windows.** If the local build *also* hangs silently, the
+fastest way to actually see the error is to temporarily flip `console=False` → `console=True` in
+`LabelSorter.spec`, rebuild, and read the traceback that appears in the now-visible console window.
+**Don't ship a `console=True` build to staff** — flip it back once the bug is found.
 
-Troubleshooting steps given to the owner, not yet confirmed:
-1. Check for a **Windows Firewall popup** hidden behind other windows (binding a listening socket
-   can trigger this even on `localhost`) — click Allow if found.
-2. Check **Task Manager** for `LabelSorter.exe`:
-   - Present, alive → check if `MsMpEng.exe` (Windows Defender) is spiking CPU — first-run
-     antivirus scan of an ~86MB unsigned exe can take a minute-plus. Just wait it out.
-   - Not present → it crashed silently on startup.
+Other things worth checking first (given to the owner, not yet confirmed either way):
+1. A **Windows Firewall popup** hidden behind other windows (binding a listening socket can
+   trigger this even on `localhost`) — click Allow if found.
+2. **Task Manager** for `LabelSorter.exe`: present+alive but no browser → check if `MsMpEng.exe`
+   (Windows Defender) is spiking CPU, a first-run scan of an ~86MB unsigned exe can take a
+   minute-plus; not present at all → it crashed silently on startup.
 3. Manually try **`http://localhost:8765`** in a browser — the server may have started fine while
-   only the auto-open-browser step (`webbrowser.open()` in `run_app.py`) failed silently (e.g., no
-   default browser registered).
-
-**If none of that resolves it**, the next step is building a *debug* variant with `console=True` in
-`LabelSorter.spec` (temporarily — don't ship this to staff) so the actual traceback becomes visible
-on Windows. That's the fastest way to stop guessing.
+   only `webbrowser.open()` in `run_app.py` failed silently (e.g., no default browser registered).
 
 ## Where things live
 
@@ -129,8 +153,10 @@ sorter/
   summary.py               จำนวนใบพัด summary transform (shared by Shopee/TikTok;
                           lazada.py has its own parallel version, see below for why)
   exec_summary.py          PDF generators (reportlab; bundled Thai font): build_exec_summary_pdf()
-                          for Shopee/TikTok (numbered picking list + tables), build_group_summary_pdf()
-                          for Lazada (tables only, no picking list — no PDF pages exist to enumerate)
+                          for Shopee/TikTok (fixed 60-row/3-column picking list + tables),
+                          build_lazada_summary_pdf() for Lazada (order-numbered list, single column,
+                          same highlight rule + same font/padding/column-width constants as the
+                          Shopee/TikTok one — see "process lesson" in the Lazada section)
 assets/fonts/             IBM Plex Sans Thai (SIL OFL) — bundled so Thai renders correctly
                           regardless of what fonts exist on a given staff machine
 sku_map.json              Bundled seed (see the public-repo warning above) — copied out to the
@@ -176,11 +202,31 @@ of this doc's original context. Key things to know if you touch this:
   (`config.sku_map`), which doesn't exist for Lazada (translation already happened by the time
   items reach the summary step). `split_fanblade_vs_box()` *is* reused directly — it only touches
   `order_size`/`qty` columns, no SKU dependency, so there was nothing to duplicate there.
-- **`build_group_summary_pdf()`** (in `exec_summary.py`) is the Lazada summary PDF — same
-  Total/กล่อง/ใบพัด table styling as the Shopee/TikTok exec summary, but single-column and with no
-  numbered picking-list section, since there are no PDF pages to enumerate. If Lazada ever needs a
-  picking list too, this is *not* built for it — you'd need something closer to
-  `build_exec_summary_pdf()`.
+- **`build_lazada_summary_pdf()`** (in `exec_summary.py`) is the Lazada summary PDF. It has BOTH an
+  order-numbered list (`#`, Order Number, สินค้า, จำนวน) AND the Total/กล่อง/ใบพัด tables — this
+  was *not* the first version shipped (see process lesson below). The list comes from
+  `build_picking_rows_lazada()` in `sorter/lazada.py`, which:
+  - walks the **reversed** dataframe (same row order as the xlsx download, so the PDF and the
+    spreadsheet agree on sequence) and emits one entry per distinct `(order, label)` pair at its
+    *first* occurrence — repeated rows of the same product in one order collapse into a single
+    `qty=N` entry (mirrors Shopee/TikTok Phase B), while a mixed order keeps one row per distinct
+    product (mirrors Phase C);
+  - reuses the exact highlight semantics from `sorter.core.build_picking_rows` (green = whole row
+    for single-product qty≥2; yellow = one cell per row for a mixed order — first item's `#` cell,
+    every other item's `qty` cell), *not* a full-row yellow;
+  - explodes `+จุก` items into a base-label row plus a `ตัวล็อคใบพัดลม` lock row, inheriting the
+    parent's qty/highlight, same as the summary-table transform already did.
+
+  **Process lesson — getting this to visually match Shopee/TikTok took two commits, not one:**
+  commit `d6123e2` copied over the `ParagraphStyle` font/leading/padding constants and looked
+  right in isolation, but the owner immediately noticed the จำนวน column was still a different
+  width. Commit `f596373` found the actual cause: the `Table(..., colWidths=[...])` geometry had
+  never been touched — Lazada's group tables were still using a hardcoded `30mm` qty column
+  against Shopee/TikTok's `15mm` (literally double), missed because I updated the *style constants*
+  I remembered changing and didn't re-diff the *whole* function against its Shopee/TikTok
+  counterpart. **If you're asked to "make X match Y" on a copy-derived function, grep for every
+  hardcoded number in both functions and diff them side by side — don't rely on remembering which
+  constants you already touched.**
 
 ## Three non-obvious bugs already found and fixed — don't reintroduce them
 
@@ -231,20 +277,27 @@ ever see auth-related code requiring the shared folder unconditionally, that's t
   tag `v1.0.0` (run https://github.com/InterKl/Universal-Label-Sorter/actions/runs/29763733789,
   ~2.5 min each). This proves the code *builds* cleanly on Windows; it does **not** prove the
   resulting `.exe` *runs* correctly — that's the open issue above.
-- **The Lazada tab** — `translate_lazada_sku()` exact-matches all 32 owner-provided real examples
-  with zero mismatches; the one real sample xlsx processes correctly (counts hand-verified); the
-  multi-qty/mixed-order/`+จุก`-explosion paths (not present in that sample) are covered by
-  `tests/test_lazada.py`'s synthetic fixture instead; full browser round-trip (upload → process →
-  both downloads → saved to history) with zero console errors, from source on Mac. **Not** yet
-  built into a frozen `.app`/`.exe`, and not tested against a real multi-quantity Lazada order (see
-  the assumption noted in the Lazada section above).
+- **The Lazada tab, including the order-numbered picking list** — `translate_lazada_sku()`
+  exact-matches all 32 owner-provided real examples with zero mismatches; the one real sample xlsx
+  processes correctly (counts hand-verified); `picking_rows` sequence/highlight/lock-explosion
+  logic covered by explicit asserts in `tests/test_lazada.py` (multi-qty repeat, mixed order,
+  `+จุก` explosion — none present in the one real sample, so this is synthetic-fixture-only
+  coverage, not real-data coverage); full browser round-trip (upload → process → both downloads →
+  saved to history) with zero console errors, from source on Mac, confirmed again after both PDF
+  follow-up commits. **Not** yet built into a frozen `.app`/`.exe`, and not tested against a real
+  multi-quantity Lazada order (the row-repeat assumption is unconfirmed against real data — see the
+  Lazada section above).
+- **Lazada PDF visual match to Shopee/TikTok** — confirmed by eye (rendered PDF read back and
+  compared) after both `d6123e2` (font/padding) and `f596373` (the actual column-width fix); regression
+  suite re-run clean after each.
 
 **❌ Not yet verified:**
-- Whether the Windows launch fix (still being isolated — plain `streamlit run app.py` works,
-  packaged `.exe` doesn't, narrowing to `run_app.py`/`LabelSorter.spec`) also needed a rebuild that
-  includes the Lazada changes — the debugging session and the Lazada feature happened close
-  together; make sure whichever build the owner ends up testing has both.
-- The shared Drive/Dropbox folder setup — never actually created. No staff have been onboarded.
+- Whether the Windows launch fix (still paused — plain `streamlit run app.py` confirmed working
+  from source on the owner's actual Windows machine; packaged `.exe` still doesn't start, narrowing
+  the bug to `run_app.py`/`LabelSorter.spec`) also needs a rebuild that includes the Lazada changes.
+  The Windows debugging thread and the Lazada feature happened in the same session but were never
+  reconciled — **whatever build the owner tests next should include everything through `f596373`**,
+  not just the pre-Lazada `v1.0.0` tag.
 - The shared Drive/Dropbox folder setup — never actually created. No staff have been onboarded.
 - Multiple staff machines pointed at the same shared folder simultaneously (SKU sync, password
   bootstrap propagation) — tested with isolated fake-HOME directories standing in for "two
@@ -259,24 +312,28 @@ ever see auth-related code requiring the shared folder unconditionally, that's t
 
 1. **Resolve the repo-visibility question** (see the ⚠️ at the top) before doing anything else that
    touches the remote.
-2. **Debug the Windows launch issue.** Start with the three troubleshooting steps above. If those
-   don't resolve it, temporarily set `console=True` in `LabelSorter.spec`, rebuild via a new tag
-   (or have the owner build locally on their Windows machine — they have one), and read the actual
-   traceback.
+2. **Finish the Windows launch debugging.** Source confirmed working (see the open-issue section) —
+   the owner was about to build locally with PyInstaller on the Windows machine itself when this
+   got paused for the Lazada feature. Pick that back up: build locally, and if it still hangs
+   silently, flip `console=True` in `LabelSorter.spec` temporarily to see the real traceback.
+   **Make sure the code under test includes commits through `f596373`**, not just the original
+   `v1.0.0` tag — the Lazada work landed after that tag and hasn't been through a Windows build yet.
 3. Once Windows genuinely works end-to-end: set up the real shared Drive/Dropbox folder (structure
    documented in `README.md`), do the "bootstrap one machine" step (install, connect to shared
    folder, set admin password), then have **one real staff member** install cold, following the
    README, on a machine that's never had this app — that's the test that actually matters most.
-4. Bump `APP_VERSION` in both `sorter/version.py` and `LabelSorter.spec` together whenever cutting
-   a release (currently `1.0.0` in both — keep them in sync, nothing enforces this automatically).
+4. Consider cutting a `v1.1.0` tag (or similar) once Windows is confirmed, so CI produces installers
+   that actually include the Lazada tab — right now the only tagged release (`v1.0.0`) predates it.
+   Bump `APP_VERSION` in both `sorter/version.py` and `LabelSorter.spec` together (currently `1.0.0`
+   in both — keep them in sync, nothing enforces this automatically).
 5. Consider app icons and code signing once the core flow is proven solid — not blocking, but the
    unsigned-app warnings are the biggest remaining piece of staff-facing friction.
 
 ## Running the regression suite
 
 `tests/` (originally added in commit `cfefa05` — previously these only existed as ephemeral
-scratchpad scripts and would have been lost when the session ended). All five pass as of the
-Lazada commit (`0b2193c`):
+scratchpad scripts and would have been lost when the session ended). All five pass as of `f596373`
+(latest commit as of this writing):
 
 ```bash
 cd "Label Sorter Desktop" && source .venv/bin/activate
