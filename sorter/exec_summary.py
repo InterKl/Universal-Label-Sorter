@@ -254,7 +254,10 @@ def build_lazada_summary_pdf(picking_rows: list[dict], summary_df: pd.DataFrame,
     title_style = ParagraphStyle("title", fontName="PlexThai-Bold", fontSize=14, leading=17, alignment=1, spaceAfter=8)
 
     table_w = page_w - 2 * margin
-    num_w, order_w, qty_w = 9 * mm, 42 * mm, 16 * mm
+    # num_w/qty_w match build_exec_summary_pdf()'s picking-list columns
+    # exactly (7.5mm/12mm) — order_w has no Shopee/TikTok equivalent, that
+    # column doesn't exist there, so it's sized on its own judgement.
+    num_w, order_w, qty_w = 7.5 * mm, 42 * mm, 12 * mm
     label_w = table_w - num_w - order_w - qty_w
 
     story = [Paragraph(title, title_style)]
@@ -309,7 +312,10 @@ def build_lazada_summary_pdf(picking_rows: list[dict], summary_df: pd.DataFrame,
         data = [[Paragraph(name, header_style), Paragraph("จำนวน", header_num_style)]] + [
             [Paragraph(label, cell_style), Paragraph(str(qty), num_style)] for label, qty in rows
         ]
-        t2 = Table(data, colWidths=[table_w - 30 * mm, 30 * mm])
+        # 15mm qty column - exact match to build_exec_summary_pdf()'s group
+        # tables (only the label column absorbs Lazada's extra page width,
+        # since Lazada's report is single-column and Shopee/TikTok's isn't).
+        t2 = Table(data, colWidths=[table_w - 15 * mm, 15 * mm])
         t2.setStyle(
             TableStyle(
                 [
