@@ -81,4 +81,32 @@ assert reversed_df["orderNumber"].tolist() == df["orderNumber"].tolist()[::-1]
 assert list(reversed_df.columns) == list(df.columns)
 print("PASS: row reversal exact, columns preserved")
 
+# --- picking_rows: order-numbered list for the สรุปรวม PDF ---
+# Input order: A, B,B,B, C(16M),C(18M), D  ->  reversed: D, C(18M),C(16M), B,B,B, A
+# First-occurrence walk of the reversed sequence emits, in order:
+#   D's base+lock, C's 18M then 16M (mixed, yellow), B once (qty=3, green), A (no highlight)
+pr = result.picking_rows
+by_order = [r["order_sn"] for r in pr]
+assert by_order == ["ORDER-D", "ORDER-D", "ORDER-C", "ORDER-C", "ORDER-B", "ORDER-A"], by_order
+print("PASS: picking_rows sequence follows reversed-row first-occurrence order")
+
+d_rows = [r for r in pr if r["order_sn"] == "ORDER-D"]
+assert [r["label"] for r in d_rows] == ["18PP", "ตัวล็อคใบพัดลม"]
+assert all(r["highlight"] is None for r in d_rows), "qty=1/order_size=1 -> no highlight, even the exploded lock"
+print("PASS: +จุก picking-list explosion inherits no-highlight from its qty=1/order_size=1 parent")
+
+c_rows = [r for r in pr if r["order_sn"] == "ORDER-C"]
+assert [r["label"] for r in c_rows] == ["18M", "16M"], "reversed within the order too, matches the xlsx"
+assert c_rows[0]["highlight"] == "yellow" and c_rows[0]["highlight_cell"] == "num"
+assert c_rows[1]["highlight"] == "yellow" and c_rows[1]["highlight_cell"] == "qty"
+print("PASS: mixed order -> yellow, first item's # cell / rest's qty cell")
+
+b_row = next(r for r in pr if r["order_sn"] == "ORDER-B")
+assert b_row == {"order_sn": "ORDER-B", "label": "16HO", "qty": 3, "highlight": "green", "highlight_cell": None}
+print("PASS: repeated rows collapse into one qty=3 green row, not three separate rows")
+
+a_row = next(r for r in pr if r["order_sn"] == "ORDER-A")
+assert a_row["highlight"] is None and a_row["qty"] == 1
+print("PASS: single item qty=1 -> no highlight in picking_rows too")
+
 print("\nALL LAZADA TESTS PASS")
