@@ -134,57 +134,50 @@ def build_report_lazada(items: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_picking_rows_lazada(df_reversed: pd.DataFrame) -> list[dict]:
-    """Order-numbered list for the สรุปรวม PDF, in the same row order as the
-    reversed xlsx download (so the PDF and the spreadsheet agree on sequence).
+    """Order-numbered list for the สรุปรวม PDF, one row per raw xlsx row in the
+    same order as the reversed xlsx download (so the PDF and the spreadsheet
+    agree line-for-line).
 
-    One entry per distinct (order, label) pair, emitted at its *first*
-    occurrence when walking df_reversed top to bottom — repeat rows of the
-    same product within one order collapse into a single qty=N entry (like
-    Shopee/TikTok's Phase B), while a mixed order keeps one row per distinct
-    product (like Phase C). +จุก items explode into a base-label row plus a
-    ตัวล็อคใบพัดลม lock row, inheriting the parent's qty/highlight.
+    NO collapsing/summing: if the same product appears on 4 rows of one order,
+    it stays 4 separate qty=1 rows — the picking list is a faithful mirror of
+    the reversed spreadsheet, not an aggregation. (The Total/กล่อง/ใบพัด
+    summary tables below the list are where the counting happens — and where
+    the +จุก -> ตัวล็อคใบพัดลม lock explosion lives.) The order list itself
+    shows the raw translated label as-is, including the "+จุก" suffix, with no
+    separate lock line: 4× "16HO+จุก" stays 4× "16HO+จุก".
 
-    Highlight rule — identical semantics to sorter.core.build_picking_rows:
-      no highlight -> single product, qty = 1
-      green        -> single product, qty >= 2 (whole row)
-      yellow       -> mixed order (one cell per row: first item's "#" cell,
-                      every other item's "qty" cell)
+    Highlight rule — same intent as sorter.core.build_picking_rows, applied
+    per raw row:
+      no highlight -> order has a single distinct product, on a single row
+      green        -> order has a single distinct product spanning >=2 rows
+                      (each of those rows is green)
+      yellow       -> mixed order (>=2 distinct products): the order's first
+                      row marks its "#" cell, every later row of that order
+                      marks its "qty" cell
     """
     order_sn_col = df_reversed["orderNumber"].astype(str).str.strip()
     label_col = df_reversed["sellerSku"].map(translate_lazada_sku)
 
     tmp = pd.DataFrame({"order_sn": order_sn_col, "label": label_col})
     order_size_map = tmp.groupby("order_sn")["label"].nunique().to_dict()
-    qty_map = tmp.groupby(["order_sn", "label"]).size().to_dict()
+    order_rowcount_map = tmp.groupby("order_sn").size().to_dict()
 
     rows: list[dict] = []
-    seen_pairs: set[tuple[str, str]] = set()
-    items_emitted_per_order: dict[str, int] = {}
+    emitted_per_order: dict[str, int] = {}
 
     for order_sn, label in zip(order_sn_col, label_col):
-        pair = (order_sn, label)
-        if pair in seen_pairs:
-            continue
-        seen_pairs.add(pair)
+        is_mixed = order_size_map[order_sn] >= 2
+        is_green = (not is_mixed) and order_rowcount_map[order_sn] >= 2
 
-        order_size = order_size_map[order_sn]
-        qty = int(qty_map[pair])
-
-        if order_size >= 2:
-            idx = items_emitted_per_order.get(order_sn, 0)
-            items_emitted_per_order[order_sn] = idx + 1
-            highlight, highlight_cell = "yellow", ("num" if idx == 0 else "qty")
-        elif qty >= 2:
+        if is_mixed:
+            n = emitted_per_order.get(order_sn, 0)
+            emitted_per_order[order_sn] = n + 1
+            highlight, highlight_cell = "yellow", ("num" if n == 0 else "qty")
+        elif is_green:
             highlight, highlight_cell = "green", None
         else:
             highlight, highlight_cell = None, None
-
-        if label.endswith(JUK_SUFFIX):
-            base_label = label[: -len(JUK_SUFFIX)]
-            rows.append({"order_sn": order_sn, "label": base_label, "qty": qty, "highlight": highlight, "highlight_cell": highlight_cell})
-            rows.append({"order_sn": order_sn, "label": LOCK_LABEL, "qty": qty, "highlight": highlight, "highlight_cell": highlight_cell})
-        else:
-            rows.append({"order_sn": order_sn, "label": label, "qty": qty, "highlight": highlight, "highlight_cell": highlight_cell})
+        rows.append({"order_sn": order_sn, "label": label, "qty": 1, "highlight": highlight, "highlight_cell": highlight_cell})
 
     return rows
 

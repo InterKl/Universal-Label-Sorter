@@ -19,7 +19,7 @@ import streamlit as st
 
 from sorter import auth, config, storage, version
 from sorter.core import SortIntegrityError, today_stamp
-from sorter.exec_summary import build_exec_summary_pdf, build_lazada_summary_pdf, build_title
+from sorter.exec_summary import build_exec_summary_pdf, build_title
 from sorter.lazada import sort_lazada
 from sorter.shopee import sort_shopee
 from sorter.tiktok import sort_tiktok
@@ -244,7 +244,7 @@ def _show_lazada_result(result) -> None:
         stamp = today_stamp()
         title = build_title("Lazada", stamp, 1)
         try:
-            summary_pdf_bytes = build_lazada_summary_pdf(result.picking_rows, result.summary_df, title)
+            summary_pdf_bytes = build_exec_summary_pdf(result.picking_rows, result.summary_df, title)
             st.download_button(
                 "⬇️ สรุปรวม (PDF)",
                 data=summary_pdf_bytes,
@@ -295,7 +295,7 @@ def _lazada_tab() -> None:
             try:
                 stamp = today_stamp()
                 title = build_title("Lazada", stamp, 1)
-                summary_pdf_bytes = build_lazada_summary_pdf(result.picking_rows, result.summary_df, title)
+                summary_pdf_bytes = build_exec_summary_pdf(result.picking_rows, result.summary_df, title)
                 batch_id = storage.save_lazada_batch(
                     result=result,
                     summary_pdf_bytes=summary_pdf_bytes,

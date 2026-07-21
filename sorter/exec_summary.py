@@ -40,7 +40,6 @@ from reportlab.platypus import (
     KeepTogether,
     PageTemplate,
     Paragraph,
-    SimpleDocTemplate,
     Spacer,
     Table,
     TableStyle,
@@ -216,119 +215,5 @@ def build_exec_summary_pdf(picking_rows: list[dict], summary_df: pd.DataFrame, t
         story.append(KeepTogether([Paragraph(name, section_style), t]))
         story.append(Spacer(1, 4 * mm))
 
-    doc.build(story)
-    return buf.getvalue()
-
-
-def build_lazada_summary_pdf(picking_rows: list[dict], summary_df: pd.DataFrame, title: str) -> bytes:
-    """Order-numbered list (#, Order Number, สินค้า, จำนวน) plus the same
-    Total / กล่อง / ใบพัด tables used elsewhere, for a platform with no
-    shipping-label PDF to enumerate (Lazada — just a reversed order list).
-
-    Single column: SimpleDocTemplate auto-paginates a long Table on its own,
-    so the fixed 60-row/3-column layout build_exec_summary_pdf() needs for
-    the much larger Shopee/TikTok picking volumes isn't needed here.
-
-    Highlight rule — identical to build_exec_summary_pdf(): green marks a
-    whole row (single product, qty>=2); yellow marks one cell per row (the
-    first item's "#" cell, every other item's "qty" cell) for a mixed order.
-    """
-    _register_fonts()
-    buf = io.BytesIO()
-
-    page_w, page_h = A4
-    # Same margin/font/leading/padding constants as build_exec_summary_pdf()
-    # (Shopee/TikTok), for visual consistency across all three platforms'
-    # summary PDFs — those values were tuned for a 3-column/60-row picking
-    # list, a constraint Lazada doesn't have, but the *typography* should
-    # still match rather than being independently eyeballed.
-    margin = 10 * mm
-
-    cell_style = ParagraphStyle("cell", fontName="PlexThai-Bold", fontSize=8.5, leading=9.8)
-    num_style = ParagraphStyle("num", parent=cell_style, alignment=TA_RIGHT)
-    header_style = ParagraphStyle("header", fontName="PlexThai-Bold", fontSize=9, leading=10.6, textColor=colors.white)
-    header_num_style = ParagraphStyle("header_num", parent=header_style, alignment=TA_RIGHT)
-    section_style = ParagraphStyle(
-        "section", fontName="PlexThai-Bold", fontSize=11, leading=14.3, spaceBefore=4, spaceAfter=3
-    )
-    title_style = ParagraphStyle("title", fontName="PlexThai-Bold", fontSize=14, leading=17, alignment=1, spaceAfter=8)
-
-    table_w = page_w - 2 * margin
-    # num_w/qty_w match build_exec_summary_pdf()'s picking-list columns
-    # exactly (7.5mm/12mm) — order_w has no Shopee/TikTok equivalent, that
-    # column doesn't exist there, so it's sized on its own judgement.
-    num_w, order_w, qty_w = 7.5 * mm, 42 * mm, 12 * mm
-    label_w = table_w - num_w - order_w - qty_w
-
-    story = [Paragraph(title, title_style)]
-
-    if picking_rows:
-        data = [
-            [
-                Paragraph("#", header_num_style),
-                Paragraph("Order Number", header_style),
-                Paragraph("สินค้า", header_style),
-                Paragraph("จำนวน", header_num_style),
-            ]
-        ]
-        row_highlight_styles = []
-        for i, row in enumerate(picking_rows, start=1):
-            data.append(
-                [
-                    Paragraph(str(i), num_style),
-                    Paragraph(str(row["order_sn"]), cell_style),
-                    Paragraph(str(row["label"]), cell_style),
-                    Paragraph(str(row["qty"]), num_style),
-                ]
-            )
-            if row["highlight"] == "green":
-                row_highlight_styles.append(("BACKGROUND", (0, i), (-1, i), GREEN))
-            elif row["highlight"] == "yellow":
-                col = 0 if row.get("highlight_cell") == "num" else 3
-                row_highlight_styles.append(("BACKGROUND", (col, i), (col, i), YELLOW))
-
-        t = Table(data, colWidths=[num_w, order_w, label_w, qty_w], repeatRows=1)
-        t.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, 0), HEADER_BG),
-                    ("GRID", (0, 0), (-1, -1), 0.3, GRID_COLOR),
-                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("TOPPADDING", (0, 0), (-1, -1), 0.75),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0.75),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 2),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 2),
-                ]
-                + row_highlight_styles
-            )
-        )
-        story.append(t)
-    else:
-        story.append(Paragraph("ไม่มีรายการ / No items", cell_style))
-
-    story.append(Spacer(1, 4 * mm))
-
-    for name, rows in _extract_group_tables(summary_df):
-        data = [[Paragraph(name, header_style), Paragraph("จำนวน", header_num_style)]] + [
-            [Paragraph(label, cell_style), Paragraph(str(qty), num_style)] for label, qty in rows
-        ]
-        # 15mm qty column - exact match to build_exec_summary_pdf()'s group
-        # tables (only the label column absorbs Lazada's extra page width,
-        # since Lazada's report is single-column and Shopee/TikTok's isn't).
-        t2 = Table(data, colWidths=[table_w - 15 * mm, 15 * mm])
-        t2.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, 0), HEADER_BG),
-                    ("GRID", (0, 0), (-1, -1), 0.3, GRID_COLOR),
-                    ("TOPPADDING", (0, 0), (-1, -1), 1.5),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5),
-                ]
-            )
-        )
-        story.append(KeepTogether([Paragraph(name, section_style), t2]))
-        story.append(Spacer(1, 4 * mm))
-
-    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=margin, bottomMargin=margin, leftMargin=margin, rightMargin=margin)
     doc.build(story)
     return buf.getvalue()
