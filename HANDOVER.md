@@ -3,13 +3,21 @@
 Written at the end of a long build session, for whoever (human or AI) continues this project next.
 Read this before touching anything — it'll save you from re-discovering things the hard way.
 
+**Update (same day, later commit `0b2193c`):** added a Lazada tab after this doc was first written.
+See "Lazada tab" section below — it's a different shape from Shopee/TikTok (no label PDF at all),
+added on top of everything else described here. Everything else in this doc is still accurate.
+
 ## What this project is
 
-A Streamlit app that lets non-technical warehouse staff sort Shopee/TikTok shipping labels by
-product (upload packing list + label PDF → click Sort → download sorted PDF + order list +
-จำนวนใบพัด summary + สรุปรวม executive-summary PDF). Ported from the owner's original ad-hoc
-scripts. Currently being packaged as a native Mac/Windows desktop app (PyInstaller) so staff never
-touch Python.
+A Streamlit app that lets non-technical warehouse staff process Shopee/TikTok/Lazada orders:
+- **Shopee/TikTok:** upload packing list + label PDF → click Sort → download sorted PDF + order
+  list + จำนวนใบพัด summary + สรุปรวม executive-summary PDF.
+- **Lazada:** upload just the order xlsx (no label PDF exists for this platform) → rows get
+  reversed top-to-bottom → download the reversed order list + a Total/กล่อง/ใบพัด product summary
+  PDF.
+
+Ported from the owner's original ad-hoc scripts. Packaged as a native Mac/Windows desktop app
+(PyInstaller) so staff never touch Python.
 
 ## ⚠️ The one thing to check first
 
@@ -98,7 +106,7 @@ changes layered on — never edit `Label Web App/` expecting it to affect the re
 ## Project structure (`Label Sorter Desktop/`)
 
 ```
-app.py                  Streamlit UI: Shopee / TikTok / ตั้งค่า SKU / ประวัติ (History) tabs
+app.py                  Streamlit UI: Shopee / TikTok / Lazada / ตั้งค่า SKU / ประวัติ tabs
 run_app.py               Desktop launcher — starts Streamlit in-process via bootstrap, opens browser
 LabelSorter.spec         PyInstaller build spec (onedir). READ ITS DOCSTRING — documents 3
                          non-obvious bugs already found and fixed (see below)
@@ -106,24 +114,73 @@ sorter/
   paths.py               resource_path() (frozen-safe bundled-asset loading) + per-OS data dirs
                          (~/Library/Application Support/LabelSorter on Mac, %APPDATA%\LabelSorter
                          on Windows)
-  config.py               SKU map resolution: shared Drive folder → local fallback → bundled seed
+  config.py               SKU map resolution: shared Drive folder → local fallback → bundled seed.
+                          Also load_lazada_group_config() — see "Lazada tab" below
   auth.py                 Admin/history passwords, same shared/local fallback pattern as config.py
-  storage.py              Local batch history (save/list/purge), 30-day retention, per-machine
+  storage.py              Local batch history (save/list/purge), 30-day retention, per-machine.
+                          save_batch() for Shopee/TikTok, save_lazada_batch() for Lazada (no label
+                          PDF file written for those)
   version.py               App version + update-available check against the shared folder
   core.py                 Shared phase/group ranking, PDF reorder + integrity checks,
                           today_stamp() — see the Windows fix below
   shopee.py / tiktok.py    Platform-specific sort logic (ported from the original scripts)
-  summary.py               จำนวนใบพัด summary transform
-  exec_summary.py          สรุปรวม PDF generator (reportlab; bundled Thai font)
+  lazada.py                Lazada: SKU-strip translation, row reversal, กล่อง/ใบพัด summary —
+                          see "Lazada tab" below, different shape from shopee.py/tiktok.py
+  summary.py               จำนวนใบพัด summary transform (shared by Shopee/TikTok;
+                          lazada.py has its own parallel version, see below for why)
+  exec_summary.py          PDF generators (reportlab; bundled Thai font): build_exec_summary_pdf()
+                          for Shopee/TikTok (numbered picking list + tables), build_group_summary_pdf()
+                          for Lazada (tables only, no picking list — no PDF pages exist to enumerate)
 assets/fonts/             IBM Plex Sans Thai (SIL OFL) — bundled so Thai renders correctly
                           regardless of what fonts exist on a given staff machine
 sku_map.json              Bundled seed (see the public-repo warning above) — copied out to the
-                          active location on first run, never read again after that
-tests/                    Regression suite (just added — see below)
+                          active location on first run, never read again after that. Shopee/TikTok
+                          only — Lazada doesn't use this file (see lazada_config.json below)
+lazada_config.json        Lazada's group *display order* only — no SKU lookup table needed, the
+                          translation is a deterministic rule (see below), not a dict
+tests/                    Regression suite
 .github/workflows/build.yml   CI: builds Mac .dmg + Windows .zip from a version tag (matrix build)
 README.md                 Full staff install guide (Thai) + owner's release checklist
 requirements.txt / requirements-dev.txt (adds pyinstaller)
 ```
+
+## Lazada tab
+
+Added after the initial desktop build (commit `0b2193c`), so it's a different shape from the rest
+of this doc's original context. Key things to know if you touch this:
+
+- **No label PDF for this platform at all.** Lazada orders are just an xlsx export with no
+  corresponding shipping-label PDF workflow. The tab has one upload slot (order file only), and
+  the "sort" is a **literal row reversal** (`df.iloc[::-1]`) — row 1 becomes row N, nothing more
+  clever than that. Don't confuse this with the Phase A/B/C picking-order sort used for
+  Shopee/TikTok; Lazada has no equivalent concept.
+- **SKU translation is a rule, not a lookup table.** Lazada's `sellerSku` column already encodes
+  the product label directly as `"<label>-<N>"` — e.g. `"16HO-3"` → `"16HO"`, `"18PP+จุก-1"` →
+  `"18PP+จุก"`. The trailing `-N` is a price-tier/variant code, not part of the product identity.
+  `sorter/lazada.py`'s `translate_lazada_sku()` just strips a trailing `-\d+` with regex — no
+  `sku_map.json`-style dict to maintain. This was validated against **32 real examples the
+  business owner typed out by hand**, with zero exceptions, including entries with no suffix at
+  all (`"16M"`, `"ด้ามกระทะ"`) which pass through unchanged. If a future SKU code doesn't fit this
+  pattern, that validation is exactly where to start debugging — check
+  `translate_lazada_sku()` against the new code first before assuming something else broke.
+- **No explicit quantity column.** Unlike TikTok's CSV (which has a `Quantity` field), Lazada's
+  export has one row per unit. A repeat purchase of the same product within one order is assumed
+  to show up as multiple rows sharing the same `orderNumber` — this was an explicit assumption
+  confirmed with the owner (not observed directly; **the one real sample file only had
+  single-item, single-quantity orders**, so this path is covered by `tests/test_lazada.py`'s
+  synthetic fixture, not by real data). If a real multi-quantity Lazada order ever looks different
+  than "repeated rows, same orderNumber," `load_line_items_lazada()` in `sorter/lazada.py` is
+  where the assumption lives.
+- **Why `sorter/lazada.py` doesn't reuse `sorter/summary.py`'s `summarize()`/`explode_y_to_lock()`
+  directly:** those functions do SKU→label translation via a dict lookup
+  (`config.sku_map`), which doesn't exist for Lazada (translation already happened by the time
+  items reach the summary step). `split_fanblade_vs_box()` *is* reused directly — it only touches
+  `order_size`/`qty` columns, no SKU dependency, so there was nothing to duplicate there.
+- **`build_group_summary_pdf()`** (in `exec_summary.py`) is the Lazada summary PDF — same
+  Total/กล่อง/ใบพัด table styling as the Shopee/TikTok exec summary, but single-column and with no
+  numbered picking-list section, since there are no PDF pages to enumerate. If Lazada ever needs a
+  picking list too, this is *not* built for it — you'd need something closer to
+  `build_exec_summary_pdf()`.
 
 ## Three non-obvious bugs already found and fixed — don't reintroduce them
 
@@ -174,9 +231,20 @@ ever see auth-related code requiring the shared folder unconditionally, that's t
   tag `v1.0.0` (run https://github.com/InterKl/Universal-Label-Sorter/actions/runs/29763733789,
   ~2.5 min each). This proves the code *builds* cleanly on Windows; it does **not** prove the
   resulting `.exe` *runs* correctly — that's the open issue above.
+- **The Lazada tab** — `translate_lazada_sku()` exact-matches all 32 owner-provided real examples
+  with zero mismatches; the one real sample xlsx processes correctly (counts hand-verified); the
+  multi-qty/mixed-order/`+จุก`-explosion paths (not present in that sample) are covered by
+  `tests/test_lazada.py`'s synthetic fixture instead; full browser round-trip (upload → process →
+  both downloads → saved to history) with zero console errors, from source on Mac. **Not** yet
+  built into a frozen `.app`/`.exe`, and not tested against a real multi-quantity Lazada order (see
+  the assumption noted in the Lazada section above).
 
 **❌ Not yet verified:**
-- The Windows `.exe` actually launching and working end-to-end (the open issue above).
+- Whether the Windows launch fix (still being isolated — plain `streamlit run app.py` works,
+  packaged `.exe` doesn't, narrowing to `run_app.py`/`LabelSorter.spec`) also needed a rebuild that
+  includes the Lazada changes — the debugging session and the Lazada feature happened close
+  together; make sure whichever build the owner ends up testing has both.
+- The shared Drive/Dropbox folder setup — never actually created. No staff have been onboarded.
 - The shared Drive/Dropbox folder setup — never actually created. No staff have been onboarded.
 - Multiple staff machines pointed at the same shared folder simultaneously (SKU sync, password
   bootstrap propagation) — tested with isolated fake-HOME directories standing in for "two
@@ -206,8 +274,9 @@ ever see auth-related code requiring the shared folder unconditionally, that's t
 
 ## Running the regression suite
 
-Just added (`tests/`, commit `cfefa05`) — previously these only existed as ephemeral scratchpad
-scripts and would have been lost when the session ended. All four pass as of this commit:
+`tests/` (originally added in commit `cfefa05` — previously these only existed as ephemeral
+scratchpad scripts and would have been lost when the session ended). All five pass as of the
+Lazada commit (`0b2193c`):
 
 ```bash
 cd "Label Sorter Desktop" && source .venv/bin/activate
@@ -215,6 +284,7 @@ python3 tests/adversarial.py            # 13 real-user-mistake scenarios, expect
 python3 tests/build_synthetic_shopee.py # Phase A/B/C highlight rule, expect "PASS"
 python3 tests/build_synthetic_tiktok.py # multi-page mixed-order dedup, expect "PASS"
 python3 tests/test_layout.py            # 6/130/170-row PDF layout, expect 1/1/2 pages
+python3 tests/test_lazada.py            # SKU-strip rule, row reversal, multi-qty/mixed/+จุก, expect "ALL LAZADA TESTS PASS"
 ```
 
 Output PDFs land in `tests/_output/` (gitignored) — open them to eyeball if a test's assertions
