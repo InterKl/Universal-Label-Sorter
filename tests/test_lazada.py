@@ -81,41 +81,29 @@ assert reversed_df["orderNumber"].tolist() == df["orderNumber"].tolist()[::-1]
 assert list(reversed_df.columns) == list(df.columns)
 print("PASS: row reversal exact, columns preserved")
 
-# --- picking_rows: order-numbered list for the สรุปรวม PDF ---
-# The list is a faithful, NON-collapsed mirror of the reversed xlsx (one row
-# per raw spreadsheet row), only translating the SKU. No +จุก explosion and
-# no lock line here — the raw "+จุก" label shows as-is; the lock count lives
-# only in the summary tables.
+# --- picking_rows: order list for the สรุปรวม PDF ---
+# Pure 1:1 translation of the reversed xlsx — one row per raw spreadsheet row,
+# in the same order, ONLY sellerSku -> label. No collapsing, no +จุก
+# explosion / lock line, no highlighting.
 # Input order: A, B,B,B, C(16M),C(18M), D  ->  reversed: D, C(18M),C(16M), B,B,B, A
-#   D's 18PP+จุก stays one row, C's 18M then 16M (mixed, yellow),
-#   B three separate 16HO rows (single product x3 -> all green), A (no highlight)
 pr = result.picking_rows
-by_order = [r["order_sn"] for r in pr]
-assert by_order == [
+assert [r["order_sn"] for r in pr] == [
     "ORDER-D", "ORDER-C", "ORDER-C",
     "ORDER-B", "ORDER-B", "ORDER-B", "ORDER-A",
-], by_order
-print("PASS: picking_rows mirrors the reversed xlsx row-for-row (no collapsing)")
+], [r["order_sn"] for r in pr]
+assert [r["label"] for r in pr] == [
+    "18PP+จุก", "18M", "16M", "16HO", "16HO", "16HO", "16H",
+], [r["label"] for r in pr]
+print("PASS: order list is a pure 1:1 translation of the reversed xlsx")
 
-d_rows = [r for r in pr if r["order_sn"] == "ORDER-D"]
-assert [r["label"] for r in d_rows] == ["18PP+จุก"], "raw +จุก label as-is, no lock line in the order list"
-assert all(r["highlight"] is None for r in d_rows), "single product/single row -> no highlight"
-print("PASS: +จุก shows as-is (no lock line) in the order list")
+assert all(r["qty"] == 1 for r in pr), "no summing — every row is qty=1"
+assert all(r["highlight"] is None and r["highlight_cell"] is None for r in pr), "no highlighting"
+print("PASS: no collapsing, no +จุก lock line, no highlighting — translation only")
 
-c_rows = [r for r in pr if r["order_sn"] == "ORDER-C"]
-assert [r["label"] for r in c_rows] == ["18M", "16M"], "reversed within the order too, matches the xlsx"
-assert c_rows[0]["highlight"] == "yellow" and c_rows[0]["highlight_cell"] == "num"
-assert c_rows[1]["highlight"] == "yellow" and c_rows[1]["highlight_cell"] == "qty"
-print("PASS: mixed order -> yellow, first item's # cell / rest's qty cell")
-
-b_rows = [r for r in pr if r["order_sn"] == "ORDER-B"]
-assert len(b_rows) == 3, "3 raw rows of the same product stay 3 separate rows, NOT one qty=3 row"
-assert all(r["label"] == "16HO" and r["qty"] == 1 for r in b_rows)
-assert all(r["highlight"] == "green" and r["highlight_cell"] is None for r in b_rows)
-print("PASS: repeated same-product rows stay separate (qty=1 each), all green")
-
-a_row = next(r for r in pr if r["order_sn"] == "ORDER-A")
-assert a_row["highlight"] is None and a_row["qty"] == 1
-print("PASS: single item qty=1 -> no highlight in picking_rows too")
+# The 3 repeated 16HO rows of ORDER-B stay 3 separate rows (not one qty=3 row).
+assert sum(1 for r in pr if r["order_sn"] == "ORDER-B") == 3
+# 18PP+จุก shows the raw translated label, no separate ตัวล็อคใบพัดลม lock row.
+assert "ตัวล็อคใบพัดลม" not in [r["label"] for r in pr]
+print("PASS: duplicate rows preserved; no lock line in the order list")
 
 print("\nALL LAZADA TESTS PASS")
