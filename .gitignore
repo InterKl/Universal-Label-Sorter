@@ -11,6 +11,9 @@ dist/
 _data/
 *.local.json
 
+# Test script output (tests/*.py write PDFs here to eyeball, not fixtures to keep)
+tests/_output/
+
 # OS cruft
 .DS_Store
 Thumbs.db
