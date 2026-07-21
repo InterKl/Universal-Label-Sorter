@@ -17,7 +17,7 @@ import json
 import random
 import shutil
 import string
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from .core import BANGKOK
@@ -38,13 +38,15 @@ class BatchMeta:
     batch_id: str
     platform: str
     created_at: str  # ISO 8601, Asia/Bangkok
-    num_pages: int
     num_orders: int
     batch_no: int
     orders_ext: str
     order_filenames: list[str]
-    pdf_filenames: list[str]
     warnings: list[str]
+    # Shopee/TikTok only (a printed label PDF exists) — 0/empty for Lazada,
+    # which has no label PDF, just a reversed order list + summary.
+    num_pages: int = 0
+    pdf_filenames: list[str] = field(default_factory=list)
 
 
 def _new_batch_id(platform: str) -> str:
@@ -83,6 +85,42 @@ def save_batch(
         orders_ext=orders_ext,
         order_filenames=order_filenames,
         pdf_filenames=pdf_filenames,
+        warnings=result.warnings,
+    )
+    with open(out_dir / "meta.json", "w", encoding="utf-8") as f:
+        json.dump(meta.__dict__, f, ensure_ascii=False, indent=2)
+
+    return batch_id
+
+
+def save_lazada_batch(
+    result,
+    summary_pdf_bytes: bytes,
+    order_filenames: list[str],
+) -> str:
+    """Same idea as save_batch(), for LazadaResult — no label PDF (Lazada has
+    no shipping-label PDF to sort, just a reversed order list + summary), so
+    FILES["labels"] is never written for these batches. The History tab must
+    check platform == "lazada" before offering that download.
+    """
+    batch_id = _new_batch_id("lazada")
+    out_dir = batches_dir() / batch_id
+    out_dir.mkdir(parents=True, exist_ok=False)
+
+    orders_ext = result.orders_filename.rsplit(".", 1)[-1]
+
+    (out_dir / f"{FILES['orders']}.{orders_ext}").write_bytes(result.orders_bytes)
+    (out_dir / FILES["summary"]).write_bytes(result.summary_bytes)
+    (out_dir / FILES["exec_summary"]).write_bytes(summary_pdf_bytes)
+
+    meta = BatchMeta(
+        batch_id=batch_id,
+        platform="lazada",
+        created_at=datetime.now(BANGKOK).isoformat(),
+        num_orders=result.num_orders,
+        batch_no=1,
+        orders_ext=orders_ext,
+        order_filenames=order_filenames,
         warnings=result.warnings,
     )
     with open(out_dir / "meta.json", "w", encoding="utf-8") as f:

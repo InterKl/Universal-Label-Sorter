@@ -129,3 +129,20 @@ def save_sku_map(new_sku_map: dict[str, str], path: Path | None = None) -> None:
     with open(active_path, "w", encoding="utf-8") as f:
         json.dump(raw, f, ensure_ascii=False, indent=2)
         f.write("\n")
+
+
+# ---------------------------------------------------------------------------
+# Lazada group ordering
+# ---------------------------------------------------------------------------
+# Lazada's sellerSku already encodes the product label directly (e.g.
+# "16HO-3" -> "16HO"; see sorter.lazada.translate_lazada_sku) -- there is no
+# dict-based translation to maintain, only the *display order* of groups.
+# That rarely changes, so unlike sku_map.json this is read straight from the
+# bundled resource -- no shared-folder sync needed for this one.
+def load_lazada_group_config() -> Config:
+    path = resource_path("lazada_config.json")
+    with open(path, encoding="utf-8") as f:
+        raw = json.load(f)
+    group_order = raw["numbered_bases"] + raw["juk_variants"] + raw["others"]
+    group_rank = {g: i for i, g in enumerate(group_order)}
+    return Config(sku_map={}, name_map=[], group_order=group_order, group_rank=group_rank)

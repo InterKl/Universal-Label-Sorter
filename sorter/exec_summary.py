@@ -40,6 +40,7 @@ from reportlab.platypus import (
     KeepTogether,
     PageTemplate,
     Paragraph,
+    SimpleDocTemplate,
     Spacer,
     Table,
     TableStyle,
@@ -215,5 +216,56 @@ def build_exec_summary_pdf(picking_rows: list[dict], summary_df: pd.DataFrame, t
         story.append(KeepTogether([Paragraph(name, section_style), t]))
         story.append(Spacer(1, 4 * mm))
 
+    doc.build(story)
+    return buf.getvalue()
+
+
+def build_group_summary_pdf(summary_df: pd.DataFrame, title: str) -> bytes:
+    """Just the Total / กล่อง / ใบพัด tables, no numbered picking list.
+
+    For platforms with no shipping-label PDF to enumerate (Lazada: a plain
+    row-reversed order list, not a picking sequence) — same tables and
+    styling as build_exec_summary_pdf(), single column since there's no
+    3-column picking-list layout to share the page with.
+    """
+    _register_fonts()
+    buf = io.BytesIO()
+
+    page_w, page_h = A4
+    margin = 15 * mm
+
+    cell_style = ParagraphStyle("cell", fontName="PlexThai-Bold", fontSize=10, leading=12)
+    num_style = ParagraphStyle("num", parent=cell_style, alignment=TA_RIGHT)
+    header_style = ParagraphStyle("header", fontName="PlexThai-Bold", fontSize=10.5, leading=12.5, textColor=colors.white)
+    header_num_style = ParagraphStyle("header_num", parent=header_style, alignment=TA_RIGHT)
+    section_style = ParagraphStyle(
+        "section", fontName="PlexThai-Bold", fontSize=13, leading=16, spaceBefore=6, spaceAfter=4
+    )
+    title_style = ParagraphStyle("title", fontName="PlexThai-Bold", fontSize=16, leading=20, alignment=1, spaceAfter=10)
+
+    table_w = page_w - 2 * margin
+
+    story = [Paragraph(title, title_style)]
+    for name, rows in _extract_group_tables(summary_df):
+        data = [[Paragraph(name, header_style), Paragraph("จำนวน", header_num_style)]] + [
+            [Paragraph(label, cell_style), Paragraph(str(qty), num_style)] for label, qty in rows
+        ]
+        t = Table(data, colWidths=[table_w - 30 * mm, 30 * mm])
+        t.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), HEADER_BG),
+                    ("GRID", (0, 0), (-1, -1), 0.4, GRID_COLOR),
+                    ("TOPPADDING", (0, 0), (-1, -1), 3),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                ]
+            )
+        )
+        story.append(KeepTogether([Paragraph(name, section_style), t]))
+        story.append(Spacer(1, 6 * mm))
+
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=margin, bottomMargin=margin, leftMargin=margin, rightMargin=margin)
     doc.build(story)
     return buf.getvalue()

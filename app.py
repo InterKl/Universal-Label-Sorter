@@ -19,11 +19,12 @@ import streamlit as st
 
 from sorter import auth, config, storage, version
 from sorter.core import SortIntegrityError, today_stamp
-from sorter.exec_summary import build_exec_summary_pdf, build_title
+from sorter.exec_summary import build_exec_summary_pdf, build_group_summary_pdf, build_title
+from sorter.lazada import sort_lazada
 from sorter.shopee import sort_shopee
 from sorter.tiktok import sort_tiktok
 
-PLATFORM_TITLES = {"shopee": "Shopee", "tiktok": "TikTok"}
+PLATFORM_TITLES = {"shopee": "Shopee", "tiktok": "TikTok", "lazada": "Lazada"}
 
 st.set_page_config(page_title="จัดเรียงใบปะหน้า", page_icon="🔀", layout="centered")
 
@@ -215,6 +216,123 @@ def _platform_tab(platform: str, order_label: str, order_types: list[str], order
             )
 
 
+def _lazada_upload_signature(order_files) -> tuple:
+    """Same idea as _upload_signature(), but Lazada has only one upload slot
+    (no label PDF to sort)."""
+    return tuple(sorted((f.name, f.size) for f in (order_files or [])))
+
+
+def _show_lazada_result(result) -> None:
+    st.success(
+        f"เสร็จแล้ว — {result.num_rows} แถว, {result.num_orders} ออเดอร์ / "
+        f"Done — {result.num_rows} rows, {result.num_orders} orders"
+    )
+
+    for w in result.warnings:
+        st.warning(w)
+
+    st.divider()
+    col1, col2 = st.columns(2)
+    with col1:
+        st.download_button(
+            "⬇️ รายการออเดอร์ (กลับลำดับ) (xlsx)",
+            data=result.orders_bytes,
+            file_name=result.orders_filename,
+            use_container_width=True,
+        )
+    with col2:
+        stamp = today_stamp()
+        title = build_title("Lazada", stamp, 1)
+        try:
+            summary_pdf_bytes = build_group_summary_pdf(result.summary_df, title)
+            st.download_button(
+                "⬇️ สรุปรวม (PDF)",
+                data=summary_pdf_bytes,
+                file_name=f"Lazada_{stamp}_สรุปรวม.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+        except Exception as e:
+            st.error(f"สร้าง PDF สรุปรวมไม่สำเร็จ / Failed to build summary PDF: {e}")
+
+    with st.expander("ดูตารางสรุปจำนวนใบพัด / View summary table"):
+        st.dataframe(_display_summary_df(result.summary_df), use_container_width=True)
+
+
+def _lazada_tab() -> None:
+    session_key = "result_lazada"
+    sig_key = "sig_lazada"
+    saved_key = "saved_batch_lazada"
+
+    st.caption(
+        "ไม่มีไฟล์ใบปะหน้าสำหรับ Lazada — อัปโหลดแค่ไฟล์ออเดอร์ ระบบจะกลับลำดับแถว "
+        "(บนลงล่าง ↔ ล่างขึ้นบน) แล้วสรุปจำนวนสินค้าให้ / "
+        "No label PDF for Lazada — upload just the order file; rows get reversed "
+        "top-to-bottom, and you get a product-quantity summary."
+    )
+
+    order_files = st.file_uploader(
+        "อัปโหลดไฟล์ออเดอร์ Lazada (.xlsx)",
+        type=["xlsx"],
+        accept_multiple_files=True,
+        key="orders_lazada",
+        help="ไฟล์ export รายการออเดอร์จาก Lazada Seller Center",
+    )
+
+    bad = _too_many(order_files, "ไฟล์ออเดอร์ Lazada")
+    ready = bool(order_files) and not bad
+
+    if st.button(
+        "📦 ประมวลผลออเดอร์ / Process orders",
+        disabled=not ready, key="btn_lazada", type="primary", use_container_width=True,
+    ):
+        try:
+            with st.spinner("กำลังประมวลผล... / Processing..."):
+                result = sort_lazada(order_files, None)
+            st.session_state[session_key] = result
+            st.session_state[sig_key] = _lazada_upload_signature(order_files)
+
+            try:
+                stamp = today_stamp()
+                title = build_title("Lazada", stamp, 1)
+                summary_pdf_bytes = build_group_summary_pdf(result.summary_df, title)
+                batch_id = storage.save_lazada_batch(
+                    result=result,
+                    summary_pdf_bytes=summary_pdf_bytes,
+                    order_filenames=[f.name for f in order_files],
+                )
+                st.session_state[saved_key] = batch_id
+            except Exception as e:
+                st.session_state[saved_key] = None
+                st.warning(
+                    "บันทึกประวัติไม่สำเร็จ (ไม่กระทบการดาวน์โหลด) / "
+                    f"Failed to save to history (downloads still work): {e}"
+                )
+        except Exception as e:
+            st.session_state.pop(session_key, None)
+            st.error(
+                "ไฟล์ไม่ถูกต้อง กรุณาตรวจสอบว่าอัปโหลดไฟล์ถูกประเภทและมีคอลัมน์ "
+                "orderNumber/sellerSku / Invalid file — please check the file type "
+                f"and that it has orderNumber/sellerSku columns. ({e})"
+            )
+
+    if session_key in st.session_state:
+        current_sig = _lazada_upload_signature(order_files)
+        if st.session_state.get(sig_key) == current_sig:
+            _show_lazada_result(st.session_state[session_key])
+            if st.session_state.get(saved_key):
+                st.caption(f"บันทึกลงประวัติแล้ว / Saved to history: {st.session_state[saved_key]}")
+        elif not order_files:
+            st.session_state.pop(session_key, None)
+            st.session_state.pop(sig_key, None)
+            st.session_state.pop(saved_key, None)
+        else:
+            st.info(
+                "ไฟล์เปลี่ยนแล้ว — กรุณากด “ประมวลผลออเดอร์” อีกครั้ง / "
+                "Files changed — please click Process again."
+            )
+
+
 def _admin_tab() -> None:
     st.subheader("ตั้งค่า / Settings")
 
@@ -365,11 +483,35 @@ def _history_tab() -> None:
     if not batches:
         st.info("ยังไม่มีประวัติ / No batches yet.")
     for meta in batches:
-        label = f"{meta['created_at'][:16].replace('T', ' ')} — {PLATFORM_TITLES[meta['platform']]} — {meta['num_pages']} หน้า / pages, {meta['num_orders']} ออเดอร์ / orders"
+        platform = meta["platform"]
+        if platform == "lazada":
+            # No label PDF for Lazada (see sorter.storage.save_lazada_batch) —
+            # "pages" has no meaning here, show order count only.
+            label = f"{meta['created_at'][:16].replace('T', ' ')} — Lazada — {meta['num_orders']} ออเดอร์ / orders"
+        else:
+            label = f"{meta['created_at'][:16].replace('T', ' ')} — {PLATFORM_TITLES[platform]} — {meta['num_pages']} หน้า / pages, {meta['num_orders']} ออเดอร์ / orders"
         with st.expander(label):
-            st.caption("ไฟล์ต้นฉบับ / Source files: " + ", ".join(meta["order_filenames"] + meta["pdf_filenames"]))
+            source_files = meta["order_filenames"] + meta.get("pdf_filenames", [])
+            st.caption("ไฟล์ต้นฉบับ / Source files: " + ", ".join(source_files))
             for w in meta.get("warnings", []):
                 st.warning(w)
+
+            if platform == "lazada":
+                bcol1, bcol2 = st.columns(2)
+                with bcol1:
+                    st.download_button(
+                        "⬇️ รายการออเดอร์", data=storage.load_batch_file(meta["batch_id"], "orders"),
+                        file_name=f"orders_sorted.{meta['orders_ext']}",
+                        key=f"h_orders_{meta['batch_id']}", use_container_width=True,
+                    )
+                with bcol2:
+                    st.download_button(
+                        "⬇️ สรุปรวม", data=storage.load_batch_file(meta["batch_id"], "exec_summary"),
+                        file_name="สรุปรวม.pdf", mime="application/pdf",
+                        key=f"h_exec_{meta['batch_id']}", use_container_width=True,
+                    )
+                continue
+
             bcol1, bcol2, bcol3, bcol4 = st.columns(4)
             with bcol1:
                 st.download_button(
@@ -418,7 +560,9 @@ def main() -> None:
             + (f"\n\n{update['notes']}" if update["notes"] else "")
         )
 
-    tab_shopee, tab_tiktok, tab_admin, tab_history = st.tabs(["Shopee", "TikTok", "ตั้งค่า SKU", "ประวัติ"])
+    tab_shopee, tab_tiktok, tab_lazada, tab_admin, tab_history = st.tabs(
+        ["Shopee", "TikTok", "Lazada", "ตั้งค่า SKU", "ประวัติ"]
+    )
 
     with tab_shopee:
         _platform_tab(
@@ -435,6 +579,9 @@ def main() -> None:
             order_types=["csv"],
             order_hint='ไฟล์ CSV "To Ship" จาก TikTok Shop Seller Centre',
         )
+
+    with tab_lazada:
+        _lazada_tab()
 
     with tab_admin:
         _admin_tab()
