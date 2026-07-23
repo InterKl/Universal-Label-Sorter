@@ -100,17 +100,26 @@ print("PASS: order list mirrors the reversed xlsx row-for-row (label translated)
 assert "ตัวล็อคใบพัดลม" not in [r["label"] for r in pr]
 print("PASS: no lock line in the order list; raw +จุก label as-is")
 
-# Highlighting kept: ORDER-D single row -> none; ORDER-C mixed -> yellow
-# (# cell then qty cell); ORDER-B same product x3 -> all green; ORDER-A none.
+# Highlighting keys purely off a repeated orderNumber (same product OR
+# different): first row -> "#" cell yellow, following rows -> "qty" cell
+# yellow. A single-row order gets no highlight.
 d_row = next(r for r in pr if r["order_sn"] == "ORDER-D")
-assert d_row["highlight"] is None
+assert d_row["highlight"] is None, "ORDER-D is a single row -> no highlight"
+a_row = next(r for r in pr if r["order_sn"] == "ORDER-A")
+assert a_row["highlight"] is None, "ORDER-A is a single row -> no highlight"
+
+# ORDER-C: two different products, one orderNumber across 2 rows.
 c_rows = [r for r in pr if r["order_sn"] == "ORDER-C"]
 assert c_rows[0]["highlight"] == "yellow" and c_rows[0]["highlight_cell"] == "num"
 assert c_rows[1]["highlight"] == "yellow" and c_rows[1]["highlight_cell"] == "qty"
+
+# ORDER-B: the SAME product on 3 rows -> now highlighted just like ORDER-C
+# (first row # cell, following rows qty cell), NOT green.
 b_rows = [r for r in pr if r["order_sn"] == "ORDER-B"]
-assert len(b_rows) == 3 and all(r["highlight"] == "green" for r in b_rows)
-a_row = next(r for r in pr if r["order_sn"] == "ORDER-A")
-assert a_row["highlight"] is None
-print("PASS: highlighting kept — mixed=yellow, repeated-single-product=green, single=none")
+assert len(b_rows) == 3
+assert b_rows[0]["highlight"] == "yellow" and b_rows[0]["highlight_cell"] == "num"
+assert all(r["highlight"] == "yellow" and r["highlight_cell"] == "qty" for r in b_rows[1:])
+assert not any(r["highlight"] == "green" for r in pr), "green highlight is retired"
+print("PASS: repeated orderNumber -> first # cell, following qty cell (same or different product)")
 
 print("\nALL LAZADA TESTS PASS")

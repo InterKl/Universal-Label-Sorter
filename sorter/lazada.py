@@ -142,13 +142,13 @@ def build_picking_rows_lazada(df_reversed: pd.DataFrame) -> list[dict]:
       - no +จุก -> ตัวล็อคใบพัดลม lock line (the raw "+จุก" label shows as-is)
 
     Highlighting IS kept, as a picking aid (it colours cells, it never adds,
-    removes, or merges rows). Same rule as sorter.core.build_picking_rows:
-      no highlight -> order has a single distinct product on a single row
-      green        -> order has a single distinct product across >=2 rows
-                      (every one of those rows is green)
-      yellow       -> mixed order (>=2 distinct products): the order's first
-                      row marks its "#" cell, every later row marks its "qty"
-                      cell — a visual bracket grouping the order's lines
+    removes, or merges rows). The rule keys purely off whether an orderNumber
+    spans multiple rows — regardless of whether those rows are the same product
+    or different products:
+      no highlight -> the orderNumber appears on a single row
+      yellow       -> the orderNumber is repeated across >=2 rows: its first
+                      row marks the "#" cell, every following row marks the
+                      "qty" cell — a visual bracket grouping the order's lines
 
     The Total/กล่อง/ใบพัด summary tables below are the only place counting and
     +จุก lock accounting happen.
@@ -156,23 +156,16 @@ def build_picking_rows_lazada(df_reversed: pd.DataFrame) -> list[dict]:
     order_sn_col = df_reversed["orderNumber"].astype(str).str.strip()
     label_col = df_reversed["sellerSku"].map(translate_lazada_sku)
 
-    tmp = pd.DataFrame({"order_sn": order_sn_col, "label": label_col})
-    order_size_map = tmp.groupby("order_sn")["label"].nunique().to_dict()
-    order_rowcount_map = tmp.groupby("order_sn").size().to_dict()
+    order_rowcount_map = order_sn_col.value_counts().to_dict()
 
     rows: list[dict] = []
     emitted_per_order: dict[str, int] = {}
 
     for order_sn, label in zip(order_sn_col, label_col):
-        is_mixed = order_size_map[order_sn] >= 2
-        is_green = (not is_mixed) and order_rowcount_map[order_sn] >= 2
-
-        if is_mixed:
+        if order_rowcount_map[order_sn] >= 2:
             n = emitted_per_order.get(order_sn, 0)
             emitted_per_order[order_sn] = n + 1
             highlight, highlight_cell = "yellow", ("num" if n == 0 else "qty")
-        elif is_green:
-            highlight, highlight_cell = "green", None
         else:
             highlight, highlight_cell = None, None
         rows.append({"order_sn": order_sn, "label": label, "qty": 1, "highlight": highlight, "highlight_cell": highlight_cell})
