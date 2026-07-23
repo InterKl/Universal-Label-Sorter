@@ -92,6 +92,7 @@ def _show_result(result, platform: str) -> None:
             data=result.pdf_bytes,
             file_name=f"{platform.title()}_Labels_Sorted.pdf",
             mime="application/pdf",
+            key=f"dl_labels_{platform}",
             use_container_width=True,
         )
     with col2:
@@ -99,6 +100,7 @@ def _show_result(result, platform: str) -> None:
             f"⬇️ รายการออเดอร์ ({stamp_suffix})",
             data=result.orders_bytes,
             file_name=result.orders_filename,
+            key=f"dl_orders_{platform}",
             use_container_width=True,
         )
     with col3:
@@ -106,6 +108,7 @@ def _show_result(result, platform: str) -> None:
             "⬇️ สรุปจำนวนใบพัด (CSV)",
             data=result.summary_bytes,
             file_name="จำนวนใบพัด.csv",
+            key=f"dl_summary_{platform}",
             use_container_width=True,
         )
     with col4:
@@ -121,6 +124,7 @@ def _show_result(result, platform: str) -> None:
                 data=exec_pdf_bytes,
                 file_name=f"{PLATFORM_TITLES[platform]}_{stamp}_สรุปรวม.pdf",
                 mime="application/pdf",
+                key=f"dl_exec_{platform}",
                 use_container_width=True,
             )
         except Exception as e:
@@ -238,6 +242,7 @@ def _show_lazada_result(result) -> None:
             "⬇️ รายการออเดอร์ (กลับลำดับ) (xlsx)",
             data=result.orders_bytes,
             file_name=result.orders_filename,
+            key="dl_orders_lazada",
             use_container_width=True,
         )
     with col2:
@@ -250,6 +255,7 @@ def _show_lazada_result(result) -> None:
                 data=summary_pdf_bytes,
                 file_name=f"Lazada_{stamp}_สรุปรวม.pdf",
                 mime="application/pdf",
+                key="dl_exec_lazada",
                 use_container_width=True,
             )
         except Exception as e:
